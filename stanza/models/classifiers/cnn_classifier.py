@@ -314,7 +314,7 @@ def save(filename, model, skip_modules=True):
     except BaseException as e:
         logger.warning("Saving failed to {}... continuing anyway.  Error: {}".format(filename, e))
 
-def load(filename, pretrain):
+def load(filename, pretrain, elmo_model):
     try:
         checkpoint = torch.load(filename, lambda storage, loc: storage)
     except BaseException:
@@ -325,10 +325,11 @@ def load(filename, pretrain):
     model_type = getattr(checkpoint['config'], 'model_type', 'CNNClassifier')
     if model_type == 'CNNClassifier':
         extra_vocab = checkpoint.get('extra_vocab', None)
-        model = CNNClassifier(pretrain,
-                              extra_vocab,
-                              checkpoint['labels'],
-                              checkpoint['config'])
+        model = CNNClassifier(pretrain=pretrain,
+                              extra_vocab=extra_vocab,
+                              elmo_model=elmo_model,
+                              labels=checkpoint['labels'],
+                              args=checkpoint['config'])
     else:
         raise ValueError("Unknown model type {}".format(model_type))
     model.load_state_dict(checkpoint['model'], strict=False)
