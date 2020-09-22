@@ -12,6 +12,11 @@ import stanza.models.classifiers.classifier_args as classifier_args
 import stanza.models.classifiers.data as data
 from stanza.models.common.vocab import PAD_ID, UNK_ID
 
+try:
+    import allennlp.modules.elmo as elmo
+except ImportError:
+    elmo = None
+
 """
 The CNN classifier is based on Yoon Kim's work:
 
@@ -37,7 +42,7 @@ help, but dev performance went down for each variation of
 logger = logging.getLogger('stanza')
 
 class CNNClassifier(nn.Module):
-    def __init__(self, pretrain, extra_vocab, labels, args):
+    def __init__(self, pretrain, extra_vocab, elmo_model, labels, args):
         """
         pretrain is a pretrained word embedding.  should have .emb and .vocab
 
@@ -63,12 +68,14 @@ class CNNClassifier(nn.Module):
                                       extra_wordvec_method = args.extra_wordvec_method,
                                       extra_wordvec_dim = args.extra_wordvec_dim,
                                       extra_wordvec_max_norm = args.extra_wordvec_max_norm,
+                                      use_elmo = args.use_elmo,
                                       model_type = 'CNNClassifier')
 
         self.unsaved_modules = []
 
         emb_matrix = pretrain.emb
         self.add_unsaved_module('embedding', nn.Embedding.from_pretrained(torch.from_numpy(emb_matrix), freeze=True))
+        self.add_unsaved_module('elmo_model', elmo_model)
         self.vocab_size = emb_matrix.shape[0]
         self.embedding_dim = emb_matrix.shape[1]
 
@@ -114,6 +121,10 @@ class CNNClassifier(nn.Module):
         else:
             raise ValueError("unable to handle {}".format(self.config.extra_wordvec_method))
 
+        if self.config.use_elmo:
+            # TODO: add the ability to map this to a different dimension?
+            total_embedding_dim = total_embedding_dim + self.elmo_model.get_output_dim()
+
         self.conv_layers = nn.ModuleList([nn.Conv2d(in_channels=1,
                                                     out_channels=self.config.filter_channels,
                                                     kernel_size=(filter_size, total_embedding_dim))
@@ -150,6 +161,7 @@ class CNNClassifier(nn.Module):
         batch_indices = []
         batch_unknowns = []
         extra_batch_indices = []
+        elmo_batch_words = []
         for phrase in inputs:
             # we use random at training time to try to learn different
             # positions of padding.  at test time, though, we want to
@@ -214,6 +226,13 @@ class CNNClassifier(nn.Module):
                 extra_sentence_indices.extend([PAD_ID] * end_pad_width)
                 extra_batch_indices.append(extra_sentence_indices)
 
+            if self.config.use_elmo:
+                elmo_phrase_words = [""] * begin_pad_width
+                for word in phrase:
+                    elmo_phrase_words.append(word)
+                elmo_phrase_words.extend([""] * end_pad_width)
+                elmo_batch_words.append(elmo_phrase_words)
+
         # creating a single large list with all the indices lets us
         # create a single tensor, which is much faster than creating
         # many tiny tensors
@@ -243,6 +262,11 @@ class CNNClassifier(nn.Module):
                 raise ValueError("unable to handle {}".format(self.config.extra_wordvec_method))
         else:
             all_inputs = [input_vectors]
+
+        if self.config.use_elmo:
+            elmo_batch_ids = elmo.batch_to_ids(elmo_batch_words).to(device=device)
+            elmo_tensor = self.elmo_model(elmo_batch_ids)['elmo_representations'][0]
+            all_inputs.append(elmo_tensor)
 
         if len(all_inputs) > 1:
             input_vectors = torch.cat(all_inputs, dim=2)
