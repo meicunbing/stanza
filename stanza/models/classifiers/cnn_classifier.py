@@ -59,6 +59,8 @@ class CNNClassifier(nn.Module):
         """
         super(CNNClassifier, self).__init__()
         self.labels = labels
+        # TODO: this can be removed sometime after all models are rebuilt
+        use_elmo = getattr(args, 'use_elmo', False)
         self.config = SimpleNamespace(filter_channels = args.filter_channels,
                                       filter_sizes = args.filter_sizes,
                                       fc_shapes = args.fc_shapes,
@@ -68,7 +70,7 @@ class CNNClassifier(nn.Module):
                                       extra_wordvec_method = args.extra_wordvec_method,
                                       extra_wordvec_dim = args.extra_wordvec_dim,
                                       extra_wordvec_max_norm = args.extra_wordvec_max_norm,
-                                      use_elmo = args.use_elmo,
+                                      use_elmo = use_elmo,
                                       model_type = 'CNNClassifier')
 
         self.unsaved_modules = []
